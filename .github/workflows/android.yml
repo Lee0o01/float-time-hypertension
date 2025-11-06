@@ -2,87 +2,31 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
+    branches:
+      - main
 
 jobs:
   build:
-    name: Build Debug APK
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up JDK 11
+      - name: Set up JDK
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
-          java-version: '11'
-          cache: gradle
+          java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/gradle-build-action@v2
-        with:
-          gradle-version: current
-
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
-      # Install Android SDK command-line tools and required platforms/build-tools
-      - name: Install Android SDK
-        env:
-          ANDROID_HOME: /usr/local/android-sdk
-        run: |
-          set -e
-          sudo mkdir -p $ANDROID_HOME/cmdline-tools
-          curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d cmdline-tools
-          sudo mkdir -p $ANDROID_HOME/cmdline-tools/latest
-          sudo mv cmdline-tools/cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/ || sudo mv cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/ || true
-          rm -rf cmdline-tools cmdline-tools.zip
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
-          # accept licenses and install platform tools, platform and build-tools
-          yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses || true
-          sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "platforms;android-30" "build-tools;30.0.3"
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Build with Gradle
-        run: ./gradlew build --stacktrace
+        run: ./gradlew assembleDebug
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
-
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: float-time-hypertension-debug
+          name: app-debug.apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 14
-
-      - name: Upload Build Reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-reports
-          path: |
-            app/build/reports/
-            app/build/outputs/logs/
-          retention-days: 3
-
-      # 为每次提交创建Release
-      - name: Create Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "app/build/outputs/apk/debug/app-debug.apk"
-          tag: v1.0.${{ github.run_number }}
-          name: Release v1.0.${{ github.run_number }}
-          body: |
-            自动构建版本 v1.0.${{ github.run_number }}
-            
-            构建时间：${{ github.event.head_commit.timestamp }}
-            提交信息：${{ github.event.head_commit.message }}
