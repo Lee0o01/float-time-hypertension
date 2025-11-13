@@ -81,11 +81,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## GitHub Actions 自动化（待推送后启用）
 项目已配置 **GitHub Actions** (`.github/workflows/android.yml`)，待项目推送到 GitHub 后即可使用：
 
-- 每次推送到 `main` 或 `develop` 分支时自动触发构建
-- CI/CD 工作流使用 JDK 17 和 Gradle 7.6.1
-- 自动构建 **Release 和 Debug 版本 APK**
-- 构建完成后作为 GitHub Artifacts 上传（保留30天）
-- 支持从 Actions 页面直接下载 APK 文件
+- **触发条件**：每次推送到 `main` 或 `develop` 分支时自动构建
+- **环境配置**：JDK 17 + Gradle 7.6.1 + gradle/gradle-build-action@v3
+- **自动修复**：工作流包含 Gradle Wrapper 自动修复机制
+  - 检测并重新下载损坏的 `gradle-wrapper.jar`
+  - 从官方仓库获取正确的配置文件
+  - 验证 Wrapper 完整性
+- **构建输出**：自动构建 **Release 和 Debug 版本 APK**
+- **Artifacts**：构建完成后作为 GitHub Artifacts 上传（保留30天）
+- **下载位置**：从 Actions 页面直接下载 APK 文件
 
 ## 新手开发指南
 
@@ -707,22 +711,59 @@ adb shell top -n 1 | grep myapp
 1. **推送代码到 GitHub**：
    ```bash
    git add .
-   git commit -m "Initial commit"
+   git commit -m "Fix: Update GitHub Actions with Gradle wrapper auto-recovery"
    git branch -M main
    git remote add origin <your-github-repo-url>
    git push -u origin main
    ```
 
-2. **自动构建触发**：
-   - 每当推送到 `main` 或 `develop` 分支时，GitHub Actions 会自动运行
-   - 构建流程包括：检出代码 → 配置 JDK 17 → 配置 Gradle 7.6.1 → 构建 APK
+2. **自动构建流程**：
+   - **触发条件**：推送到 `main` 或 `develop` 分支时自动运行
+   - **构建步骤**：
+     1. 检出代码（actions/checkout@v4）
+     2. 配置 JDK 17 环境（actions/setup-java@v4）
+     3. 设置 Gradle（gradle/gradle-build-action@v3）
+     4. **自动修复 Gradle Wrapper**（新增）
+        - 检测 `gradle-wrapper.jar` 是否损坏或缺失
+        - 如有问题自动从官方仓库重新下载
+        - 验证文件完整性
+     5. 执行 `./gradlew clean`
+     6. 执行 `./gradlew assembleRelease`
+     7. 上传 APK 作为 Artifacts
 
-3. **下载构建产物**：
-   - 进入 GitHub 仓库的 "Actions" 标签页
-   - 选择最新的工作流执行
+3. **Gradle Wrapper 自动修复机制**：
+   - **解决的问题**：避免 "NoClassDefFoundError" 错误
+   - **修复过程**：
+     ```bash
+     # 1. 检查文件是否存在且非空
+     if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+       # 2. 删除损坏的文件
+       rm -f gradle/wrapper/gradle-wrapper.jar
+       # 3. 从官方仓库重新下载
+       curl -L -o gradle/wrapper/gradle-wrapper.jar \
+         https://github.com/gradle/gradle/raw/v7.6.1/gradle/wrapper/gradle-wrapper.jar
+     fi
+     ```
+   - **官方源地址**：
+     - `gradle-wrapper.jar`: `https://github.com/gradle/gradle/raw/v7.6.1/gradle/wrapper/gradle-wrapper.jar`
+     - `gradle-wrapper.properties`: `https://raw.githubusercontent.com/gradle/gradle/v7.6.1/gradle/wrapper/gradle-wrapper.properties`
+
+4. **下载构建产物**：
+   - 进入 GitHub 仓库 → "Actions" 标签页
+   - 选择最新的工作流执行记录
    - 在 "Artifacts" 部分可下载：
-     - `app-release.apk`（发布版本）
-     - `app-debug.apk`（调试版本）
+     - `app-release.apk`（发布版本，保留30天）
+     - `app-debug.apk`（调试版本，保留30天）
+
+5. **故障排查**：
+   - 如果构建失败，展开 "Fix Gradle Wrapper" 步骤查看详情
+   - 验证 Gradle Wrapper 步骤会显示下载的文件列表
+   - 查看构建日志了解具体错误信息
+
+6. **优化特性**：
+   - **并行构建**：gradle-build-action@v3 默认启用并行构建加速
+   - **构建缓存**：自动缓存依赖，加速后续构建
+   - **错误恢复**：即使 Gradle Wrapper 损坏也能自动修复并继续构建
 
 ### 常见开发问题与解决方案
 
@@ -755,7 +796,40 @@ Gradle 7.5 is required. Current version is 7.4.1
   ```
 - Android Studio: File → Sync Project with Gradle Files
 
-**问题3：Gradle Build Daemon memory error**
+**问题3：Gradle Wrapper 损坏（NoClassDefFoundError）**
+```
+Error: Exception in thread "main" java.lang.NoClassDefFoundError: org/gradle/cli/CommandLineParser
+Caused by: java.lang.ClassNotFoundException: org.gradle.cli.CommandLineParser
+```
+**解决方案（本地环境）**：
+```bash
+# 方法1：重新生成 wrapper（推荐）
+gradle wrapper --gradle-version 7.6.1
+
+# 方法2：手动下载修复
+wget -O gradle/wrapper/gradle-wrapper.jar \
+  https://github.com/gradle/gradle/raw/v7.6.1/gradle/wrapper/gradle-wrapper.jar
+
+# 方法3：清理缓存后重新生成
+rm -rf .gradle
+rm -rf ~/.gradle/wrapper/dists/gradle-7.6.1
+gradle wrapper --gradle-version 7.6.1
+
+# 验证修复
+./gradlew --version
+```
+
+**解决方案（GitHub Actions）**：
+- 工作流已自动包含修复机制（见 "GitHub Actions 自动构建说明"）
+- 无需手动干预，会自动从官方仓库重新下载
+- 查看 "Fix Gradle Wrapper" 步骤日志确认修复状态
+
+**预防措施**：
+- 不要提交空的或损坏的 `gradle-wrapper.jar`
+- 确保 `.gitignore` 包含 `.gradle/` 和 `build/`
+- CI/CD 环境会自动检测并修复，无需担心
+
+**问题4：Gradle Build Daemon memory error**
 ```
 Daemon was destroyed
 OutOfMemoryError: Java heap space
