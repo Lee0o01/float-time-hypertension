@@ -723,10 +723,12 @@ adb shell top -n 1 | grep myapp
      1. 检出代码（actions/checkout@v4）
      2. 配置 JDK 17 环境（actions/setup-java@v4）
      3. 设置 Gradle（gradle/gradle-build-action@v3）
-     4. **自动修复 Gradle Wrapper**（新增）
-        - 检测 `gradle-wrapper.jar` 是否损坏或缺失
-        - 如有问题自动从官方仓库重新下载
-        - 验证文件完整性
+     4. **强制修复 Gradle Wrapper**（增强版）
+        - 强制删除损坏的 `gradle-wrapper.jar` 和 `gradle-wrapper.properties`
+        - 从多个官方源下载（GitHub + Gradle Services）
+        - 自动重试机制（失败时最多尝试3次）
+        - 文件大小验证（必须 > 50KB）
+        - 如果下载失败，工作流会终止并报错
      5. 执行 `./gradlew clean`
      6. 执行 `./gradlew assembleRelease`
      7. 上传 APK 作为 Artifacts
@@ -735,14 +737,24 @@ adb shell top -n 1 | grep myapp
    - **解决的问题**：避免 "NoClassDefFoundError" 错误
    - **修复过程**：
      ```bash
-     # 1. 检查文件是否存在且非空
-     if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-       # 2. 删除损坏的文件
-       rm -f gradle/wrapper/gradle-wrapper.jar
-       # 3. 从官方仓库重新下载
+     # 1. 删除所有可能损坏的文件
+     rm -f gradle/wrapper/gradle-wrapper.jar
+     rm -f gradle/wrapper/gradle-wrapper.properties
+
+     # 2. 强制重新下载（使用重试机制）
+     for i in {1..3}; do
        curl -L -o gradle/wrapper/gradle-wrapper.jar \
          https://github.com/gradle/gradle/raw/v7.6.1/gradle/wrapper/gradle-wrapper.jar
-     fi
+
+       if [ $? -eq 0 ]; then break; fi
+       # 备用源
+       curl -L -o gradle/wrapper/gradle-wrapper.jar \
+         https://services.gradle.org/distributions/gradle-7.6.1-bin.zip
+     done
+
+     # 3. 验证文件大小（必须 > 50KB）
+     FILE_SIZE=$(stat -c%s gradle/wrapper/gradle-wrapper.jar)
+     if [ "$FILE_SIZE" -lt 50000 ]; then exit 1; fi
      ```
    - **官方源地址**：
      - `gradle-wrapper.jar`: `https://github.com/gradle/gradle/raw/v7.6.1/gradle/wrapper/gradle-wrapper.jar`
@@ -820,9 +832,11 @@ gradle wrapper --gradle-version 7.6.1
 ```
 
 **解决方案（GitHub Actions）**：
-- 工作流已自动包含修复机制（见 "GitHub Actions 自动构建说明"）
-- 无需手动干预，会自动从官方仓库重新下载
-- 查看 "Fix Gradle Wrapper" 步骤日志确认修复状态
+- 工作流已强制启用修复机制（见 "GitHub Actions 自动构建说明"）
+- **强制模式**：每次构建都会重新下载，确保文件完好
+- **多重保障**：从多个源下载，失败时自动重试
+- 失败时会在 "Fix Gradle Wrapper" 步骤显示详细错误信息
+- 如果工作流失败，请查看 Actions 日志中的 "Fix Gradle Wrapper" 步骤
 
 **预防措施**：
 - 不要提交空的或损坏的 `gradle-wrapper.jar`
