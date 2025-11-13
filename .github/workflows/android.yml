@@ -48,13 +48,7 @@ jobs:
           if [ $? -ne 0 ]; then
             echo "Failed to download gradle-wrapper.properties, trying alternative method..."
             # 备用方案：创建基本的 wrapper properties
-            cat > gradle/wrapper/gradle-wrapper.properties << EOF
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-7.6.1-bin.zip
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-EOF
+            printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-7.6.1-bin.zip\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n' > gradle/wrapper/gradle-wrapper.properties
           fi
 
           # 下载 gradle-wrapper.jar（从多个源尝试）
